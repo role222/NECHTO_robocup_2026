@@ -65,8 +65,8 @@ def calibrate_color(camera, cam_name, color_name, initial_values=None):
 def main():
     calib_data = load_calibration()
 
-    cam0 = Picamera2(0)
-    cam1 = Picamera2(1)
+    cam0 = Picamera2(1)
+    cam1 = Picamera2(0)
     config0 = cam0.create_video_configuration(main={"size": (1296, 972)})
     config1 = cam1.create_video_configuration(main={"size": (1296, 972)})
     cam0.configure(config0)

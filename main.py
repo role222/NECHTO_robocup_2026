@@ -68,8 +68,8 @@ except KeyError as e:
     exit(1)
 
 # Инициализация камер
-cam0 = Picamera2(0)
-cam1 = Picamera2(1)
+cam0 = Picamera2(1)
+cam1 = Picamera2(0)
 config0 = cam0.create_video_configuration(main={"size": (1296, 972)})
 config1 = cam1.create_video_configuration(main={"size": (1296, 972)})
 cam0.configure(config0)
@@ -90,23 +90,32 @@ while True:
 
     # Функция для обработки одного цвета на одном кадре
     def process_color(lab_img, frame_img, min_val, max_val, circle_color):
+        HFOV_DEG = 180.0
         mask = cv2.inRange(lab_img, min_val, max_val)
         moments = cv2.moments(mask, True)
         area = moments['m00']
-        if area > 100:
-            x = int(moments['m10'] / area)
-            y = int(moments['m01'] / area)
-            cv2.circle(frame_img, (x, y), 10, circle_color, -1)
+        if area <= 100:
+            return None
+        x = int(moments['m10'] / area)
+        y = int(moments['m01'] / area)
+        cv2.circle(frame_img, (x, y), 10, circle_color, -1)
+        h, w = lab_img.shape[:2]
+        center_x = w / 2.0
+        dx_norm = (x - center_x) / (w / 2.0)
+        angle = dx_norm * (HFOV_DEG / 2.0)
+        return angle
 
     # Камера 0
-    process_color(lab0, frame0, cam0_red_min, cam0_red_max, cam0_red_color)
+    ball_angle_0 = process_color(lab0, frame0, cam0_red_min, cam0_red_max, cam0_red_color)
     process_color(lab0, frame0, cam0_yellow_min, cam0_yellow_max, cam0_yellow_color)
     process_color(lab0, frame0, cam0_blue_min, cam0_blue_max, cam0_blue_color)
 
     # Камера 1
-    process_color(lab1, frame1, cam1_red_min, cam1_red_max, cam1_red_color)
+    ball_angle_1 = process_color(lab1, frame1, cam1_red_min, cam1_red_max, cam1_red_color)
     process_color(lab1, frame1, cam1_yellow_min, cam1_yellow_max, cam1_yellow_color)
     process_color(lab1, frame1, cam1_blue_min, cam1_blue_max, cam1_blue_color)
+
+    print(ball_angle_0, ball_angle_1)
 
     # Отображение
     cv2.imshow('Camera 0 (Front)', frame0)
