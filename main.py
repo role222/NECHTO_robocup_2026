@@ -3,17 +3,47 @@ import cv2
 from picamera2 import Picamera2
 import json
 import os
+import can
+import struct
+import time
+
+bus = can.interface.Bus(interface='socketcan', channel='can0', bitrate=500000)
 
 CALIB_FILE = "./color_calibrate/calibration.json"
+
+prev_time = time.time()
+fps_display = 0.0
+
+def send_can_message(bus: can.BusABC, address: int, var1: int, var2: int, var3: int, var4: int) -> bool:
+    try:
+        # Упаковываем 4 числа как 16-битные знаковые (little-endian) -> 8 байт
+        data = struct.pack('<4h', var1, var2, var3, var4)
+    except struct.error as e:
+        print(f"Ошибка упаковки данных: {e}")
+        return False
+
+    msg = can.Message(
+        arbitration_id=address,
+        data=data,
+        is_extended_id=False
+    )
+
+    try:
+        bus.send(msg)
+        print(f"Отправлено: ID=0x{address:03X}, данные={list(msg.data)}")
+        return True
+    except can.CanError as e:
+        print(f"Ошибка отправки CAN-сообщения: {e}")
+        return False
 
 def compute_opposite_lab_color(l_min, l_max, a_min, a_max, b_min, b_max):
     """Вычисляет средний LAB из диапазона, затем противоположный оттенок (инверсия a и b относительно 128) и возвращает кортеж BGR."""
     L = int((l_min + l_max) / 2)
     A = int((a_min + a_max) / 2)
     B = int((b_min + b_max) / 2)
-    # Противоположный оттенок: L тот же, a' = 255 - A + 1, b' = 255 - B + 1
-    A_opp = 255 - A + 1
-    B_opp = 255 - B + 1
+    
+    A_opp = 255 - A
+    B_opp = 255 - B
     lab_opp = np.array([[[L, A_opp, B_opp]]], dtype=np.uint8)
     bgr_opp = cv2.cvtColor(lab_opp, cv2.COLOR_LAB2BGR)[0, 0]
     return tuple(int(c) for c in bgr_opp)
@@ -107,15 +137,35 @@ while True:
 
     # Камера 0
     ball_angle_0 = process_color(lab0, frame0, cam0_red_min, cam0_red_max, cam0_red_color)
-    process_color(lab0, frame0, cam0_yellow_min, cam0_yellow_max, cam0_yellow_color)
-    process_color(lab0, frame0, cam0_blue_min, cam0_blue_max, cam0_blue_color)
+    yellow_angle_0 = process_color(lab0, frame0, cam0_yellow_min, cam0_yellow_max, cam0_yellow_color)
+    blue_angle_0 = process_color(lab0, frame0, cam0_blue_min, cam0_blue_max, cam0_blue_color)
 
     # Камера 1
     ball_angle_1 = process_color(lab1, frame1, cam1_red_min, cam1_red_max, cam1_red_color)
-    process_color(lab1, frame1, cam1_yellow_min, cam1_yellow_max, cam1_yellow_color)
-    process_color(lab1, frame1, cam1_blue_min, cam1_blue_max, cam1_blue_color)
+    yellow_angle_1 = process_color(lab1, frame1, cam1_yellow_min, cam1_yellow_max, cam1_yellow_color)
+    blue_angle_1 = process_color(lab1, frame1, cam1_blue_min, cam1_blue_max, cam1_blue_color)
 
-    print(ball_angle_0, ball_angle_1)
+    ball_angle = ball_angle_0
+    yellow_angle = yellow_angle_0
+    blue_angle = blue_angle_0
+
+    print("l")
+    #send_can_message(bus, address=0x112, var1 = 0, var2 = 0, var3 = int(ball_angle), var4 = int(blue_angle))
+    print("ll")
+    #send_can_message(bus, address=0x113, var1 = int(yellow_angle), var2 = 0, var3 = 0, var4 = 0)
+
+    print(ball_angle, yellow_angle, blue_angle)
+
+    # Вычисляем FPS
+    current_time = time.time()
+    fps_display = 1.0 / (current_time - prev_time)
+    prev_time = current_time
+
+    # Отображаем FPS на кадре
+    cv2.putText(frame0, f"FPS: {fps_display:.2f}", (10, 30), 
+                cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+    cv2.putText(frame1, f"FPS: {fps_display:.2f}", (10, 30), 
+                cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
 
     # Отображение
     cv2.imshow('Camera 0 (Front)', frame0)
@@ -124,6 +174,7 @@ while True:
     if cv2.waitKey(1) & 0xFF == ord('q'):
         break
 
+bus.shutdown()
 cam0.stop()
 cam1.stop()
 cv2.destroyAllWindows()
